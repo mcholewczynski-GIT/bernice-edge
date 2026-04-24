@@ -1,0 +1,7 @@
+set -a; . ~/.env_secrets; set +a
+alias bernice-start="export OLLAMA_API_KEY='ollama-local' && sudo systemctl start ollama && openclaw gateway run --allow-unconfigured"
+alias bernice-stop="kill \$(lsof -ti :18789)"
+export NODE_COMPILE_CACHE=/var/tmp/openclaw-compile-cache
+mkdir -p /var/tmp/openclaw-compile-cache
+export OPENCLAW_NO_RESPAWN=1
+export PATH="$HOME/.local/bin:$PATH"

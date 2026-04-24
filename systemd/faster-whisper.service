@@ -1,0 +1,17 @@
+[Unit]
+Description=faster-whisper STT Service (Bernice)
+After=network.target ollama.service
+
+[Service]
+Type=simple
+User=cholewcm
+WorkingDirectory=/home/ava/cholewcm
+Environment="PATH=/home/ava/cholewcm/.local/bin:/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+ExecStart=/home/ava/cholewcm/.local/bin/faster-whisper-server --host 127.0.0.1 --port 10300 distil-large-v3
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

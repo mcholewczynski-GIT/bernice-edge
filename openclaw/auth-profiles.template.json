@@ -1,0 +1,7 @@
+{
+  "profiles": {
+    "ollama-local": {
+      "apiKey": "# REQUIRED: set to 'ollama-local' or your key value"
+    }
+  }
+}
