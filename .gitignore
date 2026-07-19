@@ -5,3 +5,12 @@ auth-profiles.json
 # OS junk
 .DS_Store
 *.swp
+
+# Hermes secrets - never commit
+.hermes/.env
+hermes/.env
+*.env
+auth.json
+.hermes/auth.json
+state.db
+*.db
