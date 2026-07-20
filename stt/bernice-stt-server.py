@@ -47,7 +47,9 @@ def transcribe(model, audio):
         sf.write(f.name, a16.astype(np.float32), SR_OUT)
         r = model.transcribe([f.name])
     os.unlink(f.name)
-    return r[0].text if hasattr(r[0], 'text') else str(r[0])
+    import re
+    text = r[0].text if hasattr(r[0], 'text') else str(r[0])
+    return re.sub(r'<[^>]+>', '', text).strip()
 
 def handle(conn, addr, model):
     log.info(f'Connection from {addr}')
@@ -80,7 +82,10 @@ def main():
     s.listen(5)
     log.info(f'STT listening on {HOST}:{PORT}')
     while True:
-        conn, addr = s.accept()
-        handle(conn, addr, model)
+        try:
+            conn, addr = s.accept()
+            handle(conn, addr, model)
+        except Exception as e:
+            log.error(f'Server loop error: {e}')
 
 if __name__ == '__main__': main()
