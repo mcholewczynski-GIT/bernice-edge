@@ -1,0 +1,18 @@
+[Unit]
+Description=Bernice TTS Service (Piper)
+After=network.target
+
+[Service]
+Type=simple
+User=admin
+Group=admin
+WorkingDirectory=/home/admin
+Environment="PATH=/home/admin/nemo-env/bin:/usr/local/bin:/usr/bin:/bin"
+ExecStart=/home/admin/nemo-env/bin/python3 /home/admin/bernice-tts-server.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:/var/log/bernice-tts.log
+StandardError=append:/var/log/bernice-tts.log
+
+[Install]
+WantedBy=multi-user.target

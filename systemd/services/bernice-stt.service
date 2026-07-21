@@ -1,0 +1,19 @@
+[Unit]
+Description=Bernice STT Service (NeMo ASR)
+After=network.target ollama.service
+Wants=ollama.service
+
+[Service]
+Type=simple
+User=admin
+Group=admin
+WorkingDirectory=/home/admin
+Environment="PATH=/home/admin/nemo-env/bin:/usr/local/cuda/bin:/usr/local/bin:/usr/bin:/bin"
+ExecStart=/home/admin/nemo-env/bin/python3 /home/admin/bernice-stt-server.py
+Restart=on-failure
+RestartSec=10
+StandardOutput=append:/var/log/bernice-stt.log
+StandardError=append:/var/log/bernice-stt.log
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,18 @@
+[Unit]
+Description=Bernice Model Warmup (pre-load LLM models)
+After=ollama.service
+Wants=ollama.service
+Before=bernice-stt.service bernice-tts.service
+
+[Service]
+Type=oneshot
+User=admin
+Group=admin
+RemainAfterExit=yes
+ExecStart=/bin/bash -c 'curl -s http://localhost:11434/api/generate -d "{\"model\":\"bernice-llm:latest\",\"keep_alive\":-1,\"prompt\":\"\"}" > /dev/null && curl -s http://localhost:11434/api/generate -d "{\"model\":\"bernice-router:latest\",\"keep_alive\":-1,\"prompt\":\"\"}" > /dev/null'
+TimeoutStartSec=600
+StandardOutput=append:/var/log/bernice-warmup.log
+StandardError=append:/var/log/bernice-warmup.log
+
+[Install]
+WantedBy=multi-user.target
