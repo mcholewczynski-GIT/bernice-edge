@@ -1,28 +1,28 @@
 #!/usr/bin/env python3
-"""
-Bernice Routed Voice Loop
-Wake word -> STT -> classify -> route to bernice-router OR grep KB + bernice-llm -> TTS
-"""
+"""Bernice Routed Voice Loop with VAD - single stream architecture"""
 import openwakeword, sounddevice as sd, numpy as np, scipy.signal as signal
-import socket, struct, subprocess, time, logging, re
+import socket, struct, subprocess, time, logging, re, collections
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [BERNICE] %(message)s')
 log = logging.getLogger(__name__)
 
-SR_IN = 48000
 SR_WAKE = 16000
-CHUNK_IN = 3840
+SR_STT = 48000
+DEVICE = 6
 CHUNK_WAKE = 1280
-DEVICE = 'hw:1,0'
-DEVICE_WAKE = 6
+VAD_FRAME = 480
 STT_HOST = '127.0.0.1'
 STT_PORT = 10300
 TTS_HOST = '127.0.0.1'
 TTS_PORT = 10301
 WAKE_THRESHOLD = 0.95
-LISTEN_DURATION = 5
+SILENCE_SECONDS = 3.0
+MAX_LISTEN_SECONDS = 15.0
 KB_PATH = '/mnt/xrt/knowledge'
 MODEL_PATH = '/home/admin/nemo-env/lib/python3.12/site-packages/openwakeword/resources/models/hey_jarvis_v0.1.onnx'
+MAX_HISTORY_TURNS = 2
+conversation_history = []
+_bridge_idx = 0
 
 XRT_TRIGGERS = [
     'xr studio', 'xrt', 'hcic', 'bernice', 'visualization',
@@ -34,153 +34,160 @@ XRT_TRIGGERS = [
     'what is the xr', 'how does the', 'what services',
     'how do you', 'what are you designed', 'what can the',
 ]
+BRIDGING = ['Let me check the XR Studio documentation for you.',
+            'That needs a deeper look. Give me just a moment.',
+            'I will pull that together for you now.']
 
-BRIDGING_PHRASES = [
-    'Let me check the XR Studio documentation for you.',
-    'That needs a deeper look. Give me just a moment.',
-    'I will pull that together for you now.',
-]
-_bridge_idx = 0
-
-def is_xrt_query(text):
-    t = text.lower()
-    return any(trigger in t for trigger in XRT_TRIGGERS)
+def is_xrt(t): return any(x in t.lower() for x in XRT_TRIGGERS)
 
 def grep_kb(query):
-    keywords = ' '.join(re.findall(r'[a-z]{4,}', query.lower())[:5])
-    pattern = '|'.join(re.findall(r'[a-z]{3,}', query.lower())[:6])
-    if not pattern:
-        pattern = 'service'
-    # Always include XRT and studio as fallback terms
-    if 'xrt' not in pattern and 'studio' not in pattern:
-        pattern = pattern + '|xrt|studio'
-    result = subprocess.run(
-        ['grep', '-r', '-i', '-E', '-A', '8', '-B', '1', pattern,
-         KB_PATH, '--include=*.md', '--exclude-dir=_placeholders'],
-        capture_output=True, text=True
-    )
-    return result.stdout[:3000] if result.stdout else ''
+    pat = '|'.join(re.findall(r'[a-z]{3,}', query.lower())[:6]) or 'service'
+    if 'xrt' not in pat and 'studio' not in pat: pat += '|xrt|studio'
+    r = subprocess.run(['grep','-r','-i','-E','-A','8','-B','1',pat,
+        KB_PATH,'--include=*.md','--exclude-dir=_placeholders'],
+        capture_output=True, text=True)
+    return r.stdout[:3000]
+
+def build_ctx():
+    if not conversation_history: return ''
+    ctx = '[Session context:]\n'
+    for t in conversation_history[-(MAX_HISTORY_TURNS*2):]:
+        ctx += f"{'Operator' if t['role']=='user' else 'Bernice'}: {t['content']}\n"
+    return ctx + '\n'
 
 def llm_fast(text):
-    result = subprocess.run(
-        ['hermes', '-z', text],
-        capture_output=True, text=True, timeout=30
-    )
-    return result.stdout.strip()
+    r = subprocess.run(['hermes','-z',build_ctx()+text], capture_output=True, text=True, timeout=30)
+    return r.stdout.strip()
 
-def llm_deep(text, context):
-    if context:
-        prompt = f'Answer using only this XR Studio knowledge base context:\n\n{context}\n\nQuestion: {text}'
-    else:
-        prompt = text
-    result = subprocess.run(
-        ['hermes', '-z', prompt, '-m', 'bernice-llm:latest'],
-        capture_output=True, text=True, timeout=90
-    )
-    return result.stdout.strip()
+def llm_deep(text, ctx):
+    prompt = build_ctx() + (f'Answer using only this XR Studio KB:\n\n{ctx}\n\nQuestion: {text}' if ctx else text)
+    r = subprocess.run(['hermes','-z',prompt,'-m','bernice-llm:latest'], capture_output=True, text=True, timeout=90)
+    return r.stdout.strip()
 
 def stt(audio_48k):
-    audio = audio_48k.astype(np.float32)
     c = socket.socket(); c.connect((STT_HOST, STT_PORT))
-    c.sendall(struct.pack('>I', len(audio)) + audio.tobytes())
+    a = audio_48k.astype(np.float32)
+    c.sendall(struct.pack('>I', len(a)) + a.tobytes())
     r = b''
     while True:
         ch = c.recv(4096)
         if not ch: break
         r += ch
-        if chr(10).encode() in r: break
+        if b'\n' in r: break
     c.close()
     text = r.decode().strip()
-    # Correct common XRT terminology misrecognitions
-    corrections = {
-        ' ex ': ' XRT ', ' ex.': ' XRT.', ' ex?': ' XRT?',
-        'the ex ': 'the XRT ', 'x r t': 'XRT', 'x-r-t': 'XRT',
-        'hick': 'HCIC', 'h c i c': 'HCIC',
-    }
-    for wrong, right in corrections.items():
-        text = text.replace(wrong, right).replace(wrong.upper(), right)
+    for w,rr in {' ex ':' XRT ',' ex.':' XRT.',' ex?':' XRT?','x r t':'XRT','hick':'HCIC'}.items():
+        text = text.replace(w, rr)
     return text
 
 def tts(text):
     c = socket.socket(); c.connect((TTS_HOST, TTS_PORT))
-    data = text.encode('utf-8')
-    c.sendall(struct.pack('>I', len(data)) + data)
+    d = text.encode()
+    c.sendall(struct.pack('>I', len(d)) + d)
     r = b''
     while True:
         ch = c.recv(1024)
         if not ch: break
         r += ch
-        if chr(10).encode() in r: break
+        if b'\n' in r: break
     c.close()
 
-def handle_query(text):
+def handle(text):
     global _bridge_idx
-    if is_xrt_query(text):
-        log.info(f'XRT query detected - using KB + bernice-llm')
-        bridge = BRIDGING_PHRASES[_bridge_idx % len(BRIDGING_PHRASES)]
-        _bridge_idx += 1
-        tts(bridge)
-        context = grep_kb(text)
-        log.info(f'KB context: {len(context)} chars retrieved')
-        response = llm_deep(text, context)
+    if is_xrt(text):
+        log.info('XRT query - KB + bernice-llm')
+        tts(BRIDGING[_bridge_idx % len(BRIDGING)]); _bridge_idx += 1
+        resp = llm_deep(text, grep_kb(text))
     else:
-        log.info(f'Conversational query - using bernice-router')
-        response = llm_fast(text)
-    log.info(f'Bernice: {response[:80]}...' if len(response) > 80 else f'Bernice: {response}')
-    if response:
-        tts(response)
+        log.info('Conversational - bernice-router')
+        resp = llm_fast(text)
+    log.info(f'Bernice: {resp[:80]}')
+    if resp:
+        conversation_history.append({'role':'user','content':text})
+        conversation_history.append({'role':'assistant','content':resp})
+        if len(conversation_history) > MAX_HISTORY_TURNS*2:
+            conversation_history[:] = conversation_history[-MAX_HISTORY_TURNS*2:]
+        tts(resp)
 
 def main():
     oww = openwakeword.Model(wakeword_model_paths=[MODEL_PATH])
-    log.info('Bernice is listening... say Hey Jarvis to activate')
-    audio_buffer = []
-    state = 'wake'
-    blocked_until = 0
-    listen_end = 0
-    listen_capture = None
+    # Energy-based speech detection (VAD score too low with PipeWire)
+    SPEECH_RMS_THRESHOLD = 0.003  # tune if needed
+    log.info('Bernice ready - say Hey Jarvis')
 
-    def callback(indata, frames, t, status):
-        audio_buffer.extend(indata[:, 0].tolist())
+    # Single shared audio buffer - 16kHz from PipeWire
+    buf_16k = []
+    state = 'wake'
+    blocked_until = 0.0
+    listen_buf_48k = []
+    last_speech = 0.0
+    speech_found = False
+    listen_start = 0.0
+
+    def cb(indata, frames, t, status):
+        buf_16k.extend(indata[:,0].tolist())
 
     with sd.InputStream(samplerate=SR_WAKE, channels=1, dtype='float32',
-                        device=DEVICE_WAKE, blocksize=CHUNK_WAKE, callback=callback):
+                        device=DEVICE, blocksize=CHUNK_WAKE, callback=cb):
         while True:
             now = time.time()
-            if len(audio_buffer) < CHUNK_WAKE:
-                time.sleep(0.005)
-                continue
-            chunk = np.array(audio_buffer[:CHUNK_WAKE])
-            audio_buffer = audio_buffer[CHUNK_WAKE:]
+            if len(buf_16k) < CHUNK_WAKE:
+                time.sleep(0.005); continue
+            chunk_16k = np.array(buf_16k[:CHUNK_WAKE])
+            buf_16k = buf_16k[CHUNK_WAKE:]
+
             if state == 'blocked':
                 if now >= blocked_until:
                     state = 'wake'
                     log.info('Ready - listening for wake word...')
+
             elif state == 'wake':
-                pred = oww.predict((chunk * 32768).astype(np.int16))
-                score = list(pred.values())[0]
+                score = list(oww.predict((chunk_16k*32768).astype(np.int16)).values())[0]
                 if score > WAKE_THRESHOLD:
-                    log.info(f'Wake word detected (score={score:.2f})')
-                    state = 'blocked'
-                    audio_buffer.clear()
-                    listen_capture = sd.rec(
-                        int(LISTEN_DURATION * SR_IN),
-                        samplerate=SR_IN, channels=1,
-                        dtype='float32', device=DEVICE_WAKE
-                    )
-                    listen_end = now + LISTEN_DURATION
+                    log.info(f'Wake word (score={score:.2f}) - speak now')
                     state = 'listen'
+                    blocked_until = now + 30.0
+                    listen_buf_48k = []
+                    last_speech = now
+                    speech_found = False
+                    listen_start = now
+                    buf_16k.clear()
+
             elif state == 'listen':
-                if now >= listen_end:
-                    sd.wait()
+                # Upsample 16k chunk to 48k for STT buffer
+                chunk_48k = signal.resample_poly(chunk_16k, 3, 1).astype(np.float32)
+                listen_buf_48k.extend(chunk_48k.tolist())
+                # Energy-based speech detection
+                rms = np.sqrt(np.mean(chunk_16k**2))
+                is_speech = rms > SPEECH_RMS_THRESHOLD
+                if is_speech:
+                    if not speech_found: log.info('Speech detected')
+                    speech_found = True
+                    last_speech = now
+                silence = now - last_speech
+                elapsed = now - listen_start
+                if speech_found and silence >= SILENCE_SECONDS:
+                    log.info(f'Silence {silence:.1f}s - processing')
                     state = 'blocked'
-                    blocked_until = now + 8.0
-                    audio_48k = listen_capture.flatten()
-                    text = stt(audio_48k)
+                    audio = np.array(listen_buf_48k, dtype=np.float32)
+                    text = stt(audio)
                     log.info(f'Heard: {text}')
-                    if text:
-                        handle_query(text)
-                        word_count = len(text.split())
-                        blocked_until = time.time() + max(5.0, word_count * 0.35)
+                    if text: handle(text)
+                    blocked_until = time.time() + 5.0
                     log.info('Listening for wake word...')
+                elif elapsed > MAX_LISTEN_SECONDS:
+                    log.info('Max listen time - processing')
+                    state = 'blocked'
+                    if listen_buf_48k:
+                        audio = np.array(listen_buf_48k, dtype=np.float32)
+                        text = stt(audio)
+                        log.info(f'Heard: {text}')
+                        if text: handle(text)
+                    blocked_until = time.time() + 5.0
+                    log.info('Listening for wake word...')
+                elif not speech_found and elapsed > 8.0:
+                    log.info('No speech - returning to wake')
+                    state = 'blocked'
+                    blocked_until = now + 3.0
 
 if __name__ == '__main__': main()
