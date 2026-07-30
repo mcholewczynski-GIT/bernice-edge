@@ -1,0 +1,18 @@
+[Unit]
+Description=Bernice Routed Voice Loop (Wake Word + STT + LLM + TTS)
+After=ollama.service bernice-stt.service bernice-tts.service bernice-warmup.service
+Wants=ollama.service bernice-stt.service bernice-tts.service bernice-warmup.service
+
+[Service]
+Type=simple
+WorkingDirectory=/home/admin
+Environment="PATH=/home/admin/nemo-env/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="HOME=/home/admin"
+ExecStart=/home/admin/nemo-env/bin/python3 /home/admin/bernice-routed-loop.py
+Restart=on-failure
+RestartSec=15
+StandardOutput=append:/home/admin/bernice-routed-loop.log
+StandardError=append:/home/admin/bernice-routed-loop.log
+
+[Install]
+WantedBy=multi-user.target
