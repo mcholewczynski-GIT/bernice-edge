@@ -19,7 +19,7 @@ WAKE_THRESHOLD = 0.95
 SILENCE_SECONDS = 3.0
 MAX_LISTEN_SECONDS = 15.0
 KB_PATH = '/mnt/xrt/knowledge'
-MODEL_PATH = '/home/admin/nemo-env/lib/python3.12/site-packages/openwakeword/resources/models/hey_jarvis_v0.1.onnx'
+MODEL_PATH = '/mnt/xrt/models/hey_bernice.onnx'
 MAX_HISTORY_TURNS = 2
 conversation_history = []
 _bridge_idx = 0
@@ -80,7 +80,18 @@ def stt(audio_48k):
         text = text.replace(w, rr)
     return text
 
+def strip_markdown(text):
+    import re
+    text = re.sub(r'\*+', '', text)           # remove asterisks
+    text = re.sub(r'#+\s*', '', text)          # remove headers
+    text = re.sub(r'`+', '', text)             # remove backticks
+    text = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', text)  # links -> text
+    text = re.sub(r'_{1,2}([^_]+)_{1,2}', r'\1', text)  # underscores
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
+
 def tts(text):
+    text = strip_markdown(text)
     c = socket.socket(); c.connect((TTS_HOST, TTS_PORT))
     d = text.encode()
     c.sendall(struct.pack('>I', len(d)) + d)
@@ -113,7 +124,7 @@ def main():
     oww = openwakeword.Model(wakeword_model_paths=[MODEL_PATH])
     # Energy-based speech detection (VAD score too low with PipeWire)
     SPEECH_RMS_THRESHOLD = 0.003  # tune if needed
-    log.info('Bernice ready - say Hey Jarvis')
+    log.info('Bernice ready - say Hey Bernice')
 
     # Single shared audio buffer - 16kHz from PipeWire
     buf_16k = []
