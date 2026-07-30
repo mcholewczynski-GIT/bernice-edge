@@ -64,6 +64,17 @@ def llm_deep(text, ctx):
     r = subprocess.run(['hermes','-z',prompt,'-m','bernice-llm:latest'], capture_output=True, text=True, timeout=90)
     return r.stdout.strip()
 
+def llm_kb_fast(text, ctx):
+    prompt = build_ctx() + (f'Answer using only this XR Studio knowledge base context:\n\n{ctx}\n\nQuestion: {text}' if ctx else text)
+    r = subprocess.run(['hermes','-z',prompt], capture_output=True, text=True, timeout=30)
+    return r.stdout.strip()
+
+COMPLEX_TRIGGERS = ['walk me through', 'step by step', 'full process', 'everything about',
+    'compare', 'difference between', 'explain in detail', 'how do all']
+
+def is_complex(text):
+    return any(t in text.lower() for t in COMPLEX_TRIGGERS)
+
 def stt(audio_48k):
     c = socket.socket(); c.connect((STT_HOST, STT_PORT))
     a = audio_48k.astype(np.float32)
@@ -106,9 +117,14 @@ def tts(text):
 def handle(text):
     global _bridge_idx
     if is_xrt(text):
-        log.info('XRT query - KB + bernice-llm')
-        tts(BRIDGING[_bridge_idx % len(BRIDGING)]); _bridge_idx += 1
-        resp = llm_deep(text, grep_kb(text))
+        ctx = grep_kb(text)
+        if is_complex(text):
+            log.info('XRT query (complex) - KB + bernice-llm')
+            tts(BRIDGING[_bridge_idx % len(BRIDGING)]); _bridge_idx += 1
+            resp = llm_deep(text, ctx)
+        else:
+            log.info('XRT query (simple) - KB + bernice-router')
+            resp = llm_kb_fast(text, ctx)
     else:
         log.info('Conversational - bernice-router')
         resp = llm_fast(text)
