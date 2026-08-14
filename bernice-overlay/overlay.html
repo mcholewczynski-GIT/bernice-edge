@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bernice · HCIC XRT</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  background: transparent;
+  font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+  color: #e8e8e8;
+  width: 100vw; height: 100vh;
+  overflow: hidden;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  padding: 32px;
+}
+
+#overlay {
+  transition: opacity 0.4s ease, transform 0.4s ease;
+  opacity: 1;
+  transform: translateY(0);
+}
+#overlay.hidden {
+  opacity: 0;
+  transform: translateY(20px);
+  pointer-events: none;
+}
+
+/* ── MODE: AMBIENT ─────────────────── */
+#mode-ambient {
+  background: rgba(8,20,20,0.92);
+  border: 1px solid #1f6f6f;
+  border-radius: 10px;
+  padding: 10px 18px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 260px;
+}
+.bernice-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: #5dcaa5;
+  flex-shrink: 0;
+}
+.bernice-dot.listening { animation: pulse 2s infinite; }
+.bernice-dot.processing { animation: pulse 0.6s infinite; background: #f59e0b; }
+.bernice-dot.speaking { animation: pulse 0.4s infinite; background: #5dcaa5; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+.ambient-label { font-size: 11px; color: #5dcaa5; letter-spacing: 0.08em; font-weight: 500; }
+.ambient-mode { font-size: 10px; color: #4a7a6a; margin-left: auto; letter-spacing: 0.05em; }
+
+/* ── MODE: RESPONSE ────────────────── */
+#mode-response {
+  background: rgba(8,20,20,0.95);
+  border: 1px solid #1f6f6f;
+  border-radius: 12px;
+  width: 520px;
+  overflow: hidden;
+}
+.resp-header {
+  background: rgba(10,30,30,0.9);
+  padding: 10px 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-bottom: 1px solid #1f3a3a;
+}
+.resp-logo {
+  font-size: 11px; font-weight: 600;
+  color: #5dcaa5; letter-spacing: 0.1em;
+}
+.resp-room-mode {
+  margin-left: auto;
+  font-size: 9px; color: #5dcaa5;
+  background: rgba(31,111,111,0.2);
+  border: 1px solid #1f6f6f;
+  border-radius: 4px;
+  padding: 2px 8px;
+  letter-spacing: 0.05em;
+}
+.resp-heard {
+  padding: 10px 16px 6px;
+  font-size: 11px;
+  color: #5a7a6a;
+  font-style: italic;
+}
+.resp-body {
+  padding: 6px 16px 14px;
+  font-size: 14px;
+  line-height: 1.65;
+  color: #d4d4d4;
+  max-height: 140px;
+  overflow: hidden;
+}
+.resp-body em { color: #5dcaa5; font-style: normal; }
+
+/* ── MODE: GUIDE ───────────────────── */
+#mode-guide {
+  background: rgba(8,20,20,0.95);
+  border: 1px solid #1f6f6f;
+  border-radius: 12px;
+  width: 420px;
+  overflow: hidden;
+}
+.guide-header {
+  background: rgba(10,30,30,0.9);
+  padding: 10px 16px;
+  display: flex; align-items: center; gap: 10px;
+  border-bottom: 1px solid #1f3a3a;
+}
+.guide-title {
+  font-size: 11px; font-weight: 600;
+  color: #5dcaa5; letter-spacing: 0.06em;
+}
+.guide-steps {
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.guide-step {
+  display: flex; align-items: flex-start; gap: 10px;
+  opacity: 0.4;
+  transition: opacity 0.3s;
+}
+.guide-step.done { opacity: 0.5; }
+.guide-step.done .step-text { text-decoration: line-through; color: #4a7a6a; }
+.guide-step.active { opacity: 1; }
+.step-num {
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  background: #1a2a2a;
+  border: 1px solid #1f6f6f;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 9px; color: #5dcaa5;
+  font-weight: 600; flex-shrink: 0;
+  margin-top: 1px;
+}
+.guide-step.done .step-num { background: #5dcaa5; color: #0a1a1a; border-color: #5dcaa5; }
+.guide-step.active .step-num { background: #1f6f6f; color: #5dcaa5; border-color: #5dcaa5; animation: pulse 1.5s infinite; }
+.step-text { font-size: 12px; color: #aaa; line-height: 1.5; }
+.guide-step.active .step-text { color: #e8e8e8; font-weight: 500; }
+
+/* ── MODE: FULL ────────────────────── */
+#mode-full {
+  background: rgba(8,20,20,0.95);
+  border: 1px solid #1f6f6f;
+  border-radius: 12px;
+  width: 520px;
+  overflow: hidden;
+}
+.full-header {
+  background: rgba(10,30,30,0.9);
+  padding: 10px 16px;
+  display: flex; align-items: center; gap: 10px;
+  border-bottom: 1px solid #1f3a3a;
+}
+.full-response {
+  padding: 10px 16px;
+  font-size: 13px; line-height: 1.6; color: #d4d4d4;
+  border-bottom: 1px solid #1a2a2a;
+  max-height: 100px; overflow: hidden;
+}
+.full-guide {
+  padding: 10px 16px;
+}
+.full-guide-title {
+  font-size: 9px; color: #666;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  margin-bottom: 8px;
+}
+</style>
+</head>
+<body>
+<div id="overlay">
+
+  <!-- AMBIENT MODE -->
+  <div id="mode-ambient">
+    <div class="bernice-dot listening" id="status-dot"></div>
+    <span class="ambient-label">BERNICE</span>
+    <span id="ambient-status" style="font-size:10px;color:#4a7a6a;">Listening</span>
+    <span class="ambient-mode" id="ambient-room-mode">Standby</span>
+  </div>
+
+  <!-- RESPONSE MODE -->
+  <div id="mode-response" style="display:none">
+    <div class="resp-header">
+      <div class="bernice-dot listening" id="resp-dot"></div>
+      <span class="resp-logo">BERNICE</span>
+      <span class="resp-room-mode" id="resp-room-mode">Standby</span>
+    </div>
+    <div class="resp-heard" id="resp-heard" style="display:none"></div>
+    <div class="resp-body" id="resp-body">Ready to assist with XR Studio operations.</div>
+  </div>
+
+  <!-- GUIDE MODE -->
+  <div id="mode-guide" style="display:none">
+    <div class="guide-header">
+      <div class="bernice-dot" id="guide-dot"></div>
+      <span class="guide-title" id="guide-title">GUIDE</span>
+      <span style="margin-left:auto;font-size:9px;color:#4a7a6a;" id="guide-room-mode">Standby</span>
+    </div>
+    <div class="guide-steps" id="guide-steps"></div>
+  </div>
+
+  <!-- FULL MODE -->
+  <div id="mode-full" style="display:none">
+    <div class="full-header">
+      <div class="bernice-dot listening" id="full-dot"></div>
+      <span class="resp-logo">BERNICE</span>
+      <span class="resp-room-mode" id="full-room-mode">Standby</span>
+    </div>
+    <div class="full-response" id="full-response">Ready to assist.</div>
+    <div class="full-guide" id="full-guide" style="display:none">
+      <div class="full-guide-title" id="full-guide-title"></div>
+      <div id="full-guide-steps"></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const WS_URL = 'ws://' + window.location.hostname + ':8766';
+let state = {};
+let ws;
+
+function connect() {
+  ws = new WebSocket(WS_URL);
+  ws.onmessage = e => { state = JSON.parse(e.data); render(); };
+  ws.onclose = () => setTimeout(connect, 2000);
+}
+
+function dot(id, status) {
+  const d = document.getElementById(id);
+  if (!d) return;
+  d.className = 'bernice-dot ' + (status || 'listening');
+}
+
+function renderSteps(container, steps, current) {
+  container.innerHTML = '';
+  (steps || []).forEach((step, i) => {
+    const div = document.createElement('div');
+    div.className = 'guide-step' + (i < current ? ' done' : i === current ? ' active' : '');
+    div.innerHTML = '<div class="step-num">' + (i + 1) + '</div><div class="step-text">' + step + '</div>';
+    container.appendChild(div);
+  });
+}
+
+function render() {
+  const overlay = document.getElementById('overlay');
+  overlay.className = state.visible === false ? 'hidden' : '';
+
+  const modes = ['ambient','response','guide','full'];
+  modes.forEach(m => {
+    const el = document.getElementById('mode-' + m);
+    if (el) el.style.display = state.mode === m ? '' : 'none';
+  });
+
+  const status = state.status || 'listening';
+  const roomMode = (state.room_mode || 'standby').replace(/_/g,' ');
+
+  ['status-dot','resp-dot','guide-dot','full-dot'].forEach(id => dot(id, status));
+
+  const heard = state.heard ? '\u201c' + state.heard + '\u201d' : '';
+  const response = state.response || 'Ready to assist with XR Studio operations.';
+
+  if (document.getElementById('ambient-status'))
+    document.getElementById('ambient-status').textContent =
+      status === 'processing' ? 'Processing...' : status === 'speaking' ? 'Speaking' : 'Listening';
+  if (document.getElementById('ambient-room-mode'))
+    document.getElementById('ambient-room-mode').textContent = roomMode;
+
+  if (document.getElementById('resp-heard')) {
+    document.getElementById('resp-heard').style.display = heard ? '' : 'none';
+    document.getElementById('resp-heard').textContent = heard;
+  }
+  if (document.getElementById('resp-body'))
+    document.getElementById('resp-body').textContent = response;
+  if (document.getElementById('resp-room-mode'))
+    document.getElementById('resp-room-mode').textContent = roomMode;
+
+  const guide = state.guide || {};
+  if (document.getElementById('guide-title'))
+    document.getElementById('guide-title').textContent = (guide.title || 'GUIDE').toUpperCase();
+  if (document.getElementById('guide-room-mode'))
+    document.getElementById('guide-room-mode').textContent = roomMode;
+  if (document.getElementById('guide-steps'))
+    renderSteps(document.getElementById('guide-steps'), guide.steps, guide.current || 0);
+
+  if (document.getElementById('full-response'))
+    document.getElementById('full-response').textContent = response;
+  if (document.getElementById('full-room-mode'))
+    document.getElementById('full-room-mode').textContent = roomMode;
+  if (document.getElementById('full-guide')) {
+    const hasGuide = guide.steps && guide.steps.length > 0;
+    document.getElementById('full-guide').style.display = hasGuide ? '' : 'none';
+    if (hasGuide) {
+      document.getElementById('full-guide-title').textContent = guide.title || 'Steps';
+      renderSteps(document.getElementById('full-guide-steps'), guide.steps, guide.current || 0);
+    }
+  }
+}
+
+connect();
+</script>
+</body>
+</html>
