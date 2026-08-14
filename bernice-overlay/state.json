@@ -1,8 +1,8 @@
 {
   "visible": true,
   "mode": "ambient",
-  "status": "processing",
-  "wake_detected": true,
+  "status": "listening",
+  "wake_detected": false,
   "heard": "",
   "response": "the named agentic assistant operating within the hcic xr studio at oregon state university is bernice.",
   "room_mode": "visualization",
@@ -11,5 +11,5 @@
     "steps": [],
     "current": 0
   },
-  "updated": 1786749343.8317106
+  "updated": 1786749352.579089
 }
