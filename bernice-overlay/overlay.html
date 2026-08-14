@@ -231,6 +231,15 @@ let ws;
 function connect() {
   ws = new WebSocket(WS_URL);
   ws.onmessage = e => { state = JSON.parse(e.data); render(); };
+  // Staleness check - if no update in 60s show standby
+  setInterval(() => {
+    if (state.updated && (Date.now()/1000 - state.updated) > 60) {
+      state.status = 'standby';
+      state.mode = 'ambient';
+      document.getElementById('ambient-status').textContent = 'Standby';
+      document.getElementById('status-dot').className = 'bernice-dot';
+    }
+  }, 10000);
   ws.onclose = () => setTimeout(connect, 2000);
 }
 

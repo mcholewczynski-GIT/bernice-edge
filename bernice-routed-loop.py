@@ -163,7 +163,7 @@ def main():
     # Energy-based speech detection (VAD score too low with PipeWire)
     SPEECH_RMS_THRESHOLD = 0.003  # tune if needed
     log.info('Bernice ready - say Hey Bernice')
-    overlay({'status': 'listening', 'mode': 'ambient', 'visible': True})
+    overlay({'status': 'listening', 'mode': 'ambient', 'visible': True, 'heard': '', 'response': '', 'wake_detected': False})
 
     # Single shared audio buffer - 16kHz from PipeWire
     buf_16k = []
