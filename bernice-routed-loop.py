@@ -245,4 +245,16 @@ def main():
                     state = 'blocked'
                     blocked_until = now + 3.0
 
-if __name__ == '__main__': main()
+if __name__ == '__main__':
+    import traceback
+    while True:
+        try:
+            main()
+        except KeyboardInterrupt:
+            log.info('Bernice shutting down')
+            break
+        except Exception as e:
+            log.error(f'Main loop crashed: {e}')
+            log.error(traceback.format_exc())
+            log.info('Restarting in 5 seconds...')
+            time.sleep(5)
