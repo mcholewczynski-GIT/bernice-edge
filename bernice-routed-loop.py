@@ -38,7 +38,7 @@ WAKE_THRESHOLD = 0.7
 SILENCE_SECONDS = 3.0
 MAX_LISTEN_SECONDS = 15.0
 KB_PATH = '/mnt/xrt/knowledge'
-MODEL_PATH = '/mnt/xrt/models/hey_bernice.onnx'
+MODEL_PATH = '/home/admin/nemo-env/lib/python3.12/site-packages/openwakeword/resources/models/hey_jarvis_v0.1.onnx'
 MAX_HISTORY_TURNS = 2
 conversation_history = []
 _bridge_idx = 0
@@ -74,19 +74,34 @@ def build_ctx():
         ctx += f"{'Operator' if t['role']=='user' else 'Bernice'}: {t['content']}\n"
     return ctx + '\n'
 
+import urllib.request as _urllib
+
+def _ollama_chat(prompt, model='bernice-lightning:latest', think=False):
+    payload = {
+        'model': model,
+        'think': think,
+        'stream': False,
+        'messages': [{'role': 'user', 'content': prompt}]
+    }
+    req = _urllib.Request(
+        'http://localhost:11434/api/chat',
+        data=json.dumps(payload).encode(),
+        headers={'Content-Type': 'application/json'}
+    )
+    with _urllib.urlopen(req, timeout=30) as resp:
+        r = json.loads(resp.read())
+    return r['message']['content'].strip()
+
 def llm_fast(text):
-    r = subprocess.run(['hermes','-z',build_ctx()+text], capture_output=True, text=True, timeout=30)
-    return r.stdout.strip()
+    return _ollama_chat(build_ctx() + text)
 
 def llm_deep(text, ctx):
     prompt = build_ctx() + (f'Answer using only this XR Studio KB:\n\n{ctx}\n\nQuestion: {text}' if ctx else text)
-    r = subprocess.run(['hermes','-z',prompt,'-m','bernice-llm:latest'], capture_output=True, text=True, timeout=90)
-    return r.stdout.strip()
+    return _ollama_chat(prompt, model='bernice-llm:latest', think=False)
 
 def llm_kb_fast(text, ctx):
     prompt = build_ctx() + (f'Answer using only this XR Studio knowledge base context:\n\n{ctx}\n\nQuestion: {text}\n\nProvide a complete, concise answer in 2-3 sentences maximum.' if ctx else text)
-    r = subprocess.run(['hermes','-z',prompt], capture_output=True, text=True, timeout=30)
-    return r.stdout.strip()
+    return _ollama_chat(prompt)
 
 COMPLEX_TRIGGERS = ['walk me through', 'step by step', 'full process', 'everything about',
     'compare', 'difference between', 'explain in detail', 'how do all']
