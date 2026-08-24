@@ -157,10 +157,10 @@ def handle(text):
             tts(BRIDGING[_bridge_idx % len(BRIDGING)]); _bridge_idx += 1
             resp = llm_deep(text, ctx)
         else:
-            log.info('XRT query (simple) - KB + bernice-router')
+            log.info('XRT query (simple) - KB + bernice-lightning')
             resp = llm_kb_fast(text, ctx)
     else:
-        log.info('Conversational - bernice-router')
+        log.info('Conversational - bernice-lightning')
         resp = llm_fast(text)
     log.info(f'Bernice: {resp[:80]}')
     if resp:
