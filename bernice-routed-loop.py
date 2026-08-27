@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
 """Bernice Routed Voice Loop with VAD - single stream architecture"""
+import sys
+sys.path.insert(0, '/home/admin')
+from hdmi_intent import parse_hdmi_intent
+from hdmi_switch import switch_input, get_all_routes, SwitcherError
 import openwakeword, sounddevice as sd, numpy as np, scipy.signal as signal
 import socket, struct, subprocess, time, logging, re, collections, json
 from pathlib import Path
@@ -40,6 +44,7 @@ MAX_LISTEN_SECONDS = 15.0
 KB_PATH = '/mnt/xrt/knowledge'
 MODEL_PATH = '/mnt/xrt/models/hey_bernice.onnx'
 MAX_HISTORY_TURNS = 2
+_pending_hdmi_input = None  # disambiguation state
 conversation_history = []
 _bridge_idx = 0
 
@@ -148,8 +153,67 @@ def tts(text):
         if b'\n' in r: break
     c.close()
 
+def handle_hdmi(intent: dict) -> str:
+    global _pending_hdmi_input
+    if intent['output'] is None:
+        _pending_hdmi_input = intent['input']
+        return "Output 1 or output 2?|AWAIT_FOLLOWUP"
+    return _execute_hdmi_switch(intent['input'], intent['output'])
+
+def handle_hdmi_followup(text: str) -> str:
+    global _pending_hdmi_input
+    import re
+    out_match = re.search(r'output\s*(one|two|1|2)\b', text.lower())
+    if not out_match or _pending_hdmi_input is None:
+        _pending_hdmi_input = None
+        return "Sorry, I didn't catch which output — output 1 or output 2?"
+    word_num = {'one': 1, 'two': 2}
+    out_num = word_num.get(out_match.group(1).lower()) or int(out_match.group(1))
+    input_num = _pending_hdmi_input
+    _pending_hdmi_input = None
+    return _execute_hdmi_switch(input_num, out_num)
+
+def _execute_hdmi_switch(input_num: int, output_num: int) -> str:
+    try:
+        ok = switch_input(input_num, output_num)
+    except SwitcherError:
+        return "I couldn't reach the HDMI switcher — check the network link."
+    if ok:
+        return f"Done — input {input_num} is now on output {output_num}."
+    return "The switcher didn't confirm that route — you may want to check it manually."
+
 def handle(text):
-    global _bridge_idx
+    global _bridge_idx, _pending_hdmi_input
+    # Check for HDMI disambiguation followup first
+    if _pending_hdmi_input is not None:
+        log.info(f'HDMI followup: {text}')
+        resp = handle_hdmi_followup(text)
+        log.info(f'Bernice: {resp}')
+        tts(strip_markdown(resp))
+        overlay({'response': resp, 'status': 'speaking', 'mode': 'response'})
+        word_count = len(resp.split())
+        time.sleep(max(1.0, word_count * 0.3))
+        overlay({'status': 'listening', 'wake_detected': False, 'mode': 'ambient'})
+        return
+    # Check for HDMI routing intent
+    hdmi_intent = parse_hdmi_intent(text)
+    if hdmi_intent is not None:
+        log.info(f'HDMI intent: {hdmi_intent}')
+        resp = handle_hdmi(hdmi_intent)
+        await_followup = resp.endswith('|AWAIT_FOLLOWUP')
+        resp = resp.replace('|AWAIT_FOLLOWUP', '')
+        log.info(f'Bernice: {resp}')
+        tts(strip_markdown(resp))
+        overlay({'response': resp, 'status': 'speaking', 'mode': 'response'})
+        word_count = len(resp.split())
+        time.sleep(max(1.0, word_count * 0.3))
+        if await_followup:
+            # Stay in listen mode for the output number followup
+            overlay({'status': 'listening', 'mode': 'response'})
+            log.info('Awaiting HDMI output followup...')
+            return
+        overlay({'status': 'listening', 'wake_detected': False, 'mode': 'ambient'})
+        return
     if is_xrt(text):
         ctx = grep_kb(text)
         if is_complex(text):
