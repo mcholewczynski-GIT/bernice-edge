@@ -130,6 +130,34 @@ def stt(audio_48k):
         text = text.replace(w, rr)
     return text
 
+# Acronyms to expand for TTS pronunciation
+TTS_ACRONYMS = {
+    'HCIC': 'H.C.I.C.',
+    'XRT': 'X.R.T.',
+    'XR': 'X.R.',
+    'VR': 'V.R.',
+    'AR': 'A.R.',
+    'OSU': 'O.S.U.',
+    'UIT': 'U.I.T.',
+    'AV': 'A.V.',
+    'HDMI': 'H.D.M.I.',
+    'STT': 'S.T.T.',
+    'TTS': 'T.T.S.',
+    'LLM': 'L.L.M.',
+    'API': 'A.P.I.',
+    'TCP': 'T.C.P.',
+    'IP': 'I.P.',
+    'LED': 'L.E.D.',
+    'Bernice': 'Bernease',
+    'BERNICE': 'Bernease',
+}
+
+def expand_acronyms(text):
+    import re
+    for acronym, expansion in TTS_ACRONYMS.items():
+        text = re.sub(r'\b' + acronym + r'\b', expansion, text)
+    return text
+
 def strip_markdown(text):
     import re
     text = re.sub(r'\*+', '', text)           # remove asterisks
@@ -138,6 +166,7 @@ def strip_markdown(text):
     text = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', text)  # links -> text
     text = re.sub(r'_{1,2}([^_]+)_{1,2}', r'\1', text)  # underscores
     text = re.sub(r'\s+', ' ', text).strip()
+    text = expand_acronyms(text)
     return text
 
 def tts(text):
