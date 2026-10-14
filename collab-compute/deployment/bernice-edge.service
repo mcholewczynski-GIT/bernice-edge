@@ -1,0 +1,13 @@
+[Unit]
+Description=Bernice Edge job service (Spark-to-edge delegation)
+After=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=%h/.config/bernice-edge/edge.env
+ExecStart=%h/ov/bin/python %h/bernice-edge/collab-compute/agent-bridge/edge_service.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
