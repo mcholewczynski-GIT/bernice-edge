@@ -4,6 +4,13 @@ import sys
 sys.path.insert(0, '/home/admin')
 from hdmi_intent import parse_hdmi_intent
 from hdmi_switch import switch_input, get_all_routes, SwitcherError
+# Bernice Edge skill (Crestron Collab Compute). Off unless BERNICE_EDGE_ENABLED=1;
+# if the modules are missing the loop runs exactly as before.
+try:
+    from edge_intent import parse_edge_intent
+    from edge_skill import handle_edge, ENABLED as EDGE_ENABLED
+except ImportError:
+    EDGE_ENABLED = False
 import openwakeword, sounddevice as sd, numpy as np, scipy.signal as signal
 import socket, struct, subprocess, time, logging, re, collections, json
 from pathlib import Path
@@ -241,6 +248,17 @@ def handle(text):
             overlay({'status': 'listening', 'mode': 'response'})
             log.info('Awaiting HDMI output followup...')
             return
+        overlay({'status': 'listening', 'wake_detected': False, 'mode': 'ambient'})
+        return
+    # Bernice Edge: delegate image requests to the Collab Compute
+    edge_intent = parse_edge_intent(text) if EDGE_ENABLED else None
+    if edge_intent is not None:
+        log.info(f'Edge intent: {edge_intent}')
+        resp = handle_edge(edge_intent, overlay, log)
+        log.info(f'Bernice: {resp}')
+        tts(strip_markdown(resp))
+        overlay({'response': resp, 'status': 'speaking', 'mode': 'response'})
+        time.sleep(max(1.0, len(resp.split()) * 0.3))
         overlay({'status': 'listening', 'wake_detected': False, 'mode': 'ambient'})
         return
     if is_xrt(text):

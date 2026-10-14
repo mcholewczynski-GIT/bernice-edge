@@ -43,7 +43,8 @@ def status():
 def generate_image(prompt, width=512, height=512, session_id="spark", wait=True, timeout_s=120):
     t0 = time.time()
     acc = call("POST", "/jobs/generate_image",
-               {"prompt": prompt, "width": width, "height": height, "session_id": session_id})
+               {"prompt": prompt, "width": width, "height": height, "session_id": session_id},
+               timeout=3)  # short: the voice loop waits on this call
     if "job_id" not in acc or not wait:
         return acc
     ack_ms = round((time.time() - t0) * 1000)

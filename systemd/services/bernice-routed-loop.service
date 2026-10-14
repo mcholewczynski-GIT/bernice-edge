@@ -8,6 +8,8 @@ Type=simple
 WorkingDirectory=/home/admin
 Environment="PATH=/home/admin/.local/bin:/home/admin/nemo-env/bin:/usr/local/bin:/usr/bin:/bin"
 Environment="HOME=/home/admin"
+# Bernice Edge settings (BERNICE_EDGE_ENABLED, EDGE_URL, EDGE_TOKEN); optional file
+EnvironmentFile=-/home/admin/.config/bernice-edge/spark.env
 ExecStart=/home/admin/nemo-env/bin/python3 /home/admin/bernice-routed-loop.py
 Restart=on-failure
 RestartSec=15
