@@ -14,3 +14,5 @@ auth.json
 .hermes/auth.json
 state.db
 *.db
+__pycache__/
+*.pyc
