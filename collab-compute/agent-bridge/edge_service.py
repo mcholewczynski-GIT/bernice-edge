@@ -24,6 +24,8 @@ Configuration (environment, normally from ~/.config/bernice-edge/edge.env):
   EDGE_MODEL   OpenVINO diffusion model folder (optional; e.g. ~/models/sd15-int8-ov)
   EDGE_DEVICE  OpenVINO device for generation (default GPU)
   EDGE_STEPS   inference steps (default 20)
+  EDGE_DISPLAY_PORT  room display page on 127.0.0.1 only (default 8791; no token,
+               read-only: current job progress and finished images)
 """
 
 import hmac
@@ -39,7 +41,7 @@ import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-VERSION = "0.2.0-sprint2"
+VERSION = "0.3.0-display"
 TOKEN = os.environ.get("EDGE_TOKEN", "")
 BIND = os.environ.get("EDGE_BIND", "127.0.0.1")
 PORT = int(os.environ.get("EDGE_PORT", "8790"))
@@ -48,6 +50,8 @@ ART = DATA / "artifacts"
 MODEL_DIR = os.path.expanduser(os.environ.get("EDGE_MODEL", ""))
 GEN_DEVICE = os.environ.get("EDGE_DEVICE", "GPU")
 STEPS = max(1, min(int(os.environ.get("EDGE_STEPS", "20")), 50))
+DISPLAY_PORT = int(os.environ.get("EDGE_DISPLAY_PORT", "8791"))
+DISPLAY_HTML = Path(__file__).resolve().parent.parent / "ui" / "display.html"
 
 MAX_PROMPT = 1000
 SIZES = (256, 512, 768)
@@ -259,12 +263,65 @@ class Handler(BaseHTTPRequestHandler):
         self.send_json(404, {"error": "not found"})
 
 
+def display_state():
+    """What the room display needs: the job in progress and the latest finished image."""
+    with jobs_lock:
+        js = list(jobs.values())
+    running = [j for j in js if j["status"] in ("running", "queued")]
+    done = [j for j in js if j["status"] == "completed"]
+    active = min(running, key=lambda j: j["created"]) if running else None
+    latest = max(done, key=lambda j: j["finished"]) if done else None
+    return {
+        "active": active and {k: active.get(k) for k in ("job_id", "prompt", "status", "progress")},
+        "latest": latest and {"artifact_id": latest["artifact_id"], "prompt": latest["prompt"],
+                              "model": latest.get("model"), "device": latest.get("device"),
+                              "width": latest["width"], "height": latest["height"],
+                              "seconds": round(latest["finished"] - latest["started"], 1)},
+    }
+
+
+class DisplayHandler(Handler):
+    """Read-only, unauthenticated, bound to 127.0.0.1 for the local kiosk browser."""
+
+    def do_GET(self):
+        parts = self.path.split("?")[0].strip("/").split("/")
+        if parts in (["display"], [""]):
+            data = DISPLAY_HTML.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            return self.wfile.write(data)
+        if parts == ["display", "state"]:
+            return self.send_json(200, display_state())
+        if len(parts) == 3 and parts[:2] == ["display", "artifacts"] and parts[2].endswith(".png"):
+            name = parts[2][:-4]
+            path = ART / f"{name}.png"
+            if not name.replace("-", "").isalnum() or not path.is_file():
+                return self.send_json(404, {"error": "no such artifact"})
+            data = path.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "image/png")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            return self.wfile.write(data)
+        self.send_json(404, {"error": "not found"})
+
+    def do_POST(self):
+        self.send_json(405, {"error": "read-only"})
+
+    def log_message(self, fmt, *args):
+        pass  # the kiosk polls every second; keep the journal readable
+
+
 def main():
     if len(TOKEN) < 24:
         raise SystemExit("EDGE_TOKEN must be set (24+ characters). See collab-compute/README.md.")
     ART.mkdir(parents=True, exist_ok=True)
     threading.Thread(target=worker, daemon=True).start()
-    log("starting", bind=BIND, port=PORT, version=VERSION)
+    display = ThreadingHTTPServer(("127.0.0.1", DISPLAY_PORT), DisplayHandler)
+    threading.Thread(target=display.serve_forever, daemon=True).start()
+    log("starting", bind=BIND, port=PORT, display=f"127.0.0.1:{DISPLAY_PORT}", version=VERSION)
     ThreadingHTTPServer((BIND, PORT), Handler).serve_forever()
 
 

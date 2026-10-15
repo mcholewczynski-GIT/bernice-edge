@@ -72,3 +72,25 @@ All requests need `Authorization: Bearer <EDGE_TOKEN>`.
 - Listens only on the Tailscale address; every request needs the token.
 - Bounded inputs, fixed sizes, queue cap of 8.
 - No shell execution or arbitrary file paths are reachable from the API.
+
+## Room display (HDMI)
+
+The service also serves a full-screen display page on `127.0.0.1:8791`
+(local only, read-only, no token). It shows a "ready" screen when idle, a
+progress banner while a job runs, and each finished image with its prompt,
+model, device and time.
+
+Start it in the logged-in desktop session (also works from SSH):
+
+```
+sh ~/bernice-edge/collab-compute/deployment/kiosk.sh &
+```
+
+Start it automatically at login:
+
+```
+mkdir -p ~/.config/autostart
+cp ~/bernice-edge/collab-compute/deployment/bernice-display.desktop ~/.config/autostart/
+```
+
+`kiosk.sh` also turns off screen blanking, lock and notification banners.

@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=Bernice Edge Display
+Exec=sh -c "$HOME/bernice-edge/collab-compute/deployment/kiosk.sh"
+X-GNOME-Autostart-enabled=true
+NoDisplay=true
