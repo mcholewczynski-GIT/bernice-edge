@@ -12,10 +12,21 @@ this node runs delegated visual jobs and drives the room display.
 | `deployment/install.sh` | Creates token/config, installs and starts the service |
 | `../spark-integration/edge_client.py` | Spark-side client and CLI test |
 
-## Sprint 1 status
+## Image generation
 
-The generator is a dummy that renders a test pattern. This proves the
-Spark-to-edge job lifecycle before any model is added (Sprint 2).
+Set `EDGE_MODEL` in `~/.config/bernice-edge/edge.env` to an OpenVINO diffusion
+model folder and the service generates with OpenVINO GenAI on the GPU:
+
+```
+EDGE_MODEL=/home/marc/models/sd15-int8-ov
+EDGE_DEVICE=GPU
+EDGE_STEPS=20
+```
+
+The model loads and warms up once at service start (watch for
+`generator.ready` in the journal). Without `EDGE_MODEL`, or if loading fails,
+a test-pattern generator keeps the API working; `/status` shows which is active
+under `generator`. Requires `openvino-genai` and `pillow` in `~/ov`.
 
 ## Install (on the edge)
 

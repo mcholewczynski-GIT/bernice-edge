@@ -31,7 +31,7 @@ Check the edge node:
 
     ~/.hermes/skills/bernice-edge/scripts/edge.sh status
 
-Generate an image (waits for completion, about 3 s today):
+Generate an image (waits for completion, about 30 s):
 
     ~/.hermes/skills/bernice-edge/scripts/edge.sh generate "<visual description>"
 
@@ -56,10 +56,13 @@ If `status` is `rejected` with `queue full`, say the display node is busy and to
 If the script reports a connection error, say the room display node is unreachable;
 do not retry more than once.
 
-## Current limits (Sprint 1)
+## Current limits
 
-- The edge returns a **test pattern**, not a real image. Say so plainly if asked
-  what was generated. Real image generation arrives in Sprint 2.
+- Images come from Stable Diffusion 1.5 (INT8, OpenVINO) on the edge's Intel GPU,
+  about 30 s per 512 x 512 image. If `model` reports `dummy-test-pattern`, the
+  model did not load and the result is a placeholder; say so.
+- Good at scenes and objects; poor at labels, arrows and text. For explanatory
+  diagrams, say a diagram would be clearer.
 - Sizes: 512 x 512 by default (256, 512 or 768 allowed by the edge).
 - The image is not yet shown on the room display automatically.
 

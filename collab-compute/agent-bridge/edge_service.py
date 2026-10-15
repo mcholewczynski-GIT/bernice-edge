@@ -4,8 +4,9 @@
 Runs on the Crestron Collab Compute. Exposes a small, authenticated HTTP API
 that the Spark calls to delegate visual tasks. Standard library only.
 
-Sprint 1 scope: the "generator" is a dummy that renders a test pattern, so
-networking and the job lifecycle can be proven before any model is involved.
+Image generation uses OpenVINO GenAI (Text2ImagePipeline) on the Intel GPU when
+EDGE_MODEL points at an OpenVINO diffusion model folder. Without it, or if the
+model fails to load, a test-pattern generator keeps the API working.
 
 Endpoints (all require: Authorization: Bearer <EDGE_TOKEN>)
   GET  /status                 health, devices, job counts
@@ -20,6 +21,9 @@ Configuration (environment, normally from ~/.config/bernice-edge/edge.env):
                Tailscale address so only the tailnet can reach it)
   EDGE_PORT    default 8790
   EDGE_DATA    artifact/job directory (default ~/.local/share/bernice-edge)
+  EDGE_MODEL   OpenVINO diffusion model folder (optional; e.g. ~/models/sd15-int8-ov)
+  EDGE_DEVICE  OpenVINO device for generation (default GPU)
+  EDGE_STEPS   inference steps (default 20)
 """
 
 import hmac
@@ -35,12 +39,15 @@ import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-VERSION = "0.1.0-sprint1"
+VERSION = "0.2.0-sprint2"
 TOKEN = os.environ.get("EDGE_TOKEN", "")
 BIND = os.environ.get("EDGE_BIND", "127.0.0.1")
 PORT = int(os.environ.get("EDGE_PORT", "8790"))
 DATA = Path(os.environ.get("EDGE_DATA", Path.home() / ".local/share/bernice-edge"))
 ART = DATA / "artifacts"
+MODEL_DIR = os.path.expanduser(os.environ.get("EDGE_MODEL", ""))
+GEN_DEVICE = os.environ.get("EDGE_DEVICE", "GPU")
+STEPS = max(1, min(int(os.environ.get("EDGE_STEPS", "20")), 50))
 
 MAX_PROMPT = 1000
 SIZES = (256, 512, 768)
@@ -50,6 +57,7 @@ STARTED = time.time()
 jobs = {}
 jobs_lock = threading.Lock()
 work = queue.Queue(maxsize=MAX_QUEUE)
+gen = {"model": "dummy-test-pattern", "device": "CPU", "state": "dummy", "pipe": None, "warm_s": None}
 
 
 def log(msg, **kw):
@@ -81,12 +89,56 @@ def test_pattern_png(w, h, seed):
     return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr) + chunk(b"IDAT", zlib.compress(bytes(rows), 6)) + chunk(b"IEND", b"")
 
 
+def load_generator():
+    """Load the OpenVINO pipeline once, in the worker thread, and warm it up."""
+    if not MODEL_DIR:
+        log("generator.dummy", reason="EDGE_MODEL not set")
+        return
+    gen["state"] = "loading"
+    t0 = time.time()
+    try:
+        import openvino_genai as ovg
+        pipe = ovg.Text2ImagePipeline(MODEL_DIR, GEN_DEVICE)
+        pipe.generate("warm up", width=512, height=512, num_inference_steps=1)
+        gen.update(pipe=pipe, model=Path(MODEL_DIR).name, device=GEN_DEVICE, state="ready",
+                   warm_s=round(time.time() - t0, 1))
+        log("generator.ready", model=gen["model"], device=GEN_DEVICE, warm_s=gen["warm_s"])
+    except Exception as e:  # noqa: BLE001 - fall back so the API stays usable
+        gen.update(state="failed", error=f"{type(e).__name__}: {e}")
+        log("generator.failed", error=gen["error"])
+
+
+def render(job_id, prompt, w, h):
+    """Returns PNG bytes. Uses the OpenVINO pipeline when ready, else the test pattern."""
+    pipe = gen["pipe"]
+    if pipe is None:
+        for i in range(1, 5):
+            time.sleep(0.5)
+            update(job_id, progress=i / 4)
+        return test_pattern_png(w, h, hash(prompt) & 0xFFFF)
+    import io
+    from PIL import Image
+
+    def on_step(step, num_steps, _latent):
+        update(job_id, progress=round((step + 1) / max(num_steps, 1), 3))
+        return False  # False = keep going
+
+    try:
+        result = pipe.generate(prompt, width=w, height=h, num_inference_steps=STEPS, callback=on_step)
+    except TypeError:  # older GenAI builds without the callback argument
+        result = pipe.generate(prompt, width=w, height=h, num_inference_steps=STEPS)
+    buf = io.BytesIO()
+    Image.fromarray(result.data[0]).save(buf, format="PNG")
+    return buf.getvalue()
+
+
 def update(job_id, **fields):
     with jobs_lock:
         jobs[job_id].update(fields)
 
 
 def worker():
+    load_generator()
     while True:
         job_id = work.get()
         with jobs_lock:
@@ -96,14 +148,13 @@ def worker():
         update(job_id, status="running", started=time.time(), progress=0.0)
         log("job.running", job_id=job_id)
         try:
-            for i in range(1, 5):  # simulated generation steps
-                time.sleep(0.5)
-                update(job_id, progress=i / 4)
-            png = test_pattern_png(job["width"], job["height"], hash(job["prompt"]) & 0xFFFF)
+            png = render(job_id, job["prompt"], job["width"], job["height"])
             (ART / f"{job_id}.png").write_bytes(png)
             update(job_id, status="completed", finished=time.time(), artifact_id=job_id,
-                   model="dummy-test-pattern", device="CPU")
-            log("job.completed", job_id=job_id)
+                   model=gen["model"], device=gen["device"], steps=STEPS if gen["pipe"] else 0,
+                   progress=1.0)
+            log("job.completed", job_id=job_id, model=gen["model"],
+                seconds=round(time.time() - jobs[job_id]["started"], 1))
         except Exception as e:  # noqa: BLE001
             update(job_id, status="failed", finished=time.time(), error=str(e))
             log("job.failed", job_id=job_id, error=str(e))
@@ -143,7 +194,8 @@ class Handler(BaseHTTPRequestHandler):
                 "service": "bernice-edge", "version": VERSION, "host": socket.gethostname(),
                 "uptime_s": round(time.time() - STARTED), "devices": devices(),
                 "queue_depth": work.qsize(), "queue_capacity": MAX_QUEUE, "jobs": counts,
-                "models": ["dummy-test-pattern"],
+                "models": [gen["model"]], "generator": {k: gen.get(k) for k in ("model", "device", "state", "warm_s", "error")},
+                "steps": STEPS,
             })
         if len(parts) == 2 and parts[0] == "jobs":
             with jobs_lock:
